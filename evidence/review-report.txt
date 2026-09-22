@@ -1,4 +1,6 @@
-项目：lintnet JSON 测试报告；验证：go test -count=1 ./... 与 testcmd/output -race 均通过
+题目 ID：lintnet-lintnet-7a110ea3-5db5-4903-a873-91c8d5bae825
+Session ID：2820701832610282:e9e4308ad77ef8cc4c7d81bfb4b0f9be_6ab1034541e3bff58c9cf5de.6ab1034541e3bff58c9cf5e1.6ab1034541e3bff58c9cf5df:TraeCode CN.3.3.101.no_sid.no_ppe.T(2026/9/21 18:13:25)
+项目：lintnet JSON 测试报告；有效轮数：38；验证：go test -count=1 ./... 与 testcmd/output -race 均通过
 Rubric ID：1｜状态：通过｜期望行为：JSON 模式全通过或有失败都只输出一个含 schema、版本和 summary 的文档｜实际观察：同一 results 切片生成一次 TestReport，summary 含 schema_version、lintnet_version 和计数｜直接证据：pkg/controller/testcmd/controller.go；pkg/controller/testcmd/testcmd.go 的 outputJSON；JSON 全通过和混合结果测试
 Rubric ID：2｜状态：通过｜期望行为：每个用例恰有稳定身份、名称、文件和状态，发现入口顺序稳定｜实际观察：runPair 为每个用例生成 path#索引 ID，目录和配置发现均排序，状态限定 pass/fail/error｜直接证据：pkg/controller/testcmd/testcmd.go 的 runPair、sortTestPairs、filterLintFilesWithTest；顺序测试
 Rubric ID：3｜状态：通过｜期望行为：断言失败保留 expected、actual、diff，夹具或 Jsonnet 错误保留 error｜实际观察：cmp.Diff 分支设置 fail 和三项值，读取错误分支设置 error 和 Error，状态不合并｜直接证据：pkg/controller/testcmd/testcmd.go 的 runCase；混合结果测试
