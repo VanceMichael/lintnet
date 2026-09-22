@@ -1,4 +1,6 @@
-项目：lintnet max_data_bytes；验证：go test -count=1 ./... 与目标包 -race 均通过
+题目 ID：lintnet-lintnet-dd262bc1-33c6-422c-a79d-05828646e7c4
+Session ID：2820701832610282:b5911e09da638c4c1f8b43a5d4f01ec2_6ab1033841e3bff58c9cf5d2.6ab1033841e3bff58c9cf5d5.6ab1033841e3bff58c9cf5d3:TraeCode CN.3.3.101.no_sid.no_ppe.T(2026/9/21 18:13:12)
+项目：lintnet max_data_bytes；有效轮数：87；验证：go test -count=1 ./... 与目标包 -race 均通过
 Rubric ID：1｜状态：通过｜期望行为：配置与命令行覆盖，默认无限制，非法值前置拒绝｜实际观察：正整数解析成功，命令行覆盖配置，零值负数非法字符串在执行前返回错误｜直接证据：pkg/config/config.go；pkg/controller/lint/lint.go；pkg/controller/testcmd/testcmd.go；配置覆盖和非法值测试
 Rubric ID：2｜状态：通过｜期望行为：物理文件有界读取，增长文件不越界并保留路径｜实际观察：readFile 用 LimitReader(max+1)，超限返回 DataTooLargeError 并保留原始路径｜直接证据：pkg/encoding/parser.go；TestReadFile_DoesNotReadExcessBytes；TestReadFile_FileGrowingAfterDiscovered
 Rubric ID：3｜状态：通过｜期望行为：普通规则超限后继续其他文件并保留成功结果｜实际观察：每个数据文件独立生成结果，超限转为当前文件错误，后续文件继续评估｜直接证据：pkg/lint/linter.go 的 lintNonCombineFiles 和 lintNonCombineFile；隔离测试
