@@ -169,5 +169,10 @@
         description: 'An ignored directory name. When lintnet searches data files, files under this directory are ignored',
       },
     },
+    max_data_bytes: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Maximum number of bytes lintnet reads from each data file. It also limits the cumulative number of bytes of data files passed to a combined rule. By default there is no limit',
+    },
   },
 }

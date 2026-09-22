@@ -69,6 +69,7 @@ OPTIONS:
    --error-level string, -e string  Set the error level [$LINTNET_ERROR_LEVEL]
    --shown-error-level string       Set the shown error level [$LINTNET_SHOWN_ERROR_LEVEL]
    --output-success                 Output the result even if the lint succeeds [$LINTNET_OUTPUT_SUCCESS]
+   --max-data-bytes string          Maximum number of bytes lintnet reads from each data file. It overrides max_data_bytes in the configuration file. Must be a positive integer [$LINTNET_MAX_DATA_BYTES]
    --help, -h                       show help
 ```
 
@@ -166,6 +167,7 @@ DESCRIPTION:
 
 OPTIONS:
    --target string, -t string  Target ID
+   --max-data-bytes string     Maximum number of bytes lintnet reads from each data file. It overrides max_data_bytes in the configuration file. Must be a positive integer [$LINTNET_MAX_DATA_BYTES]
    --help, -h                  show help
 ```
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
+	"strings"
 
 	"github.com/lintnet/lintnet/pkg/errlevel"
 )
@@ -32,6 +34,9 @@ type Config struct {
 	Outputs         Outputs                   `json:"outputs,omitempty"`
 	ModuleArchives  map[string]*ModuleArchive `json:"module_archives,omitempty"`
 	IgnoredPatterns []string                  `json:"ignore_patterns,omitempty"`
+	// MaxDataBytes is the maximum number of bytes lintnet reads from each data file.
+	// Zero means no limit.
+	MaxDataBytes int64 `json:"max_data_bytes,omitempty"`
 }
 
 func (c *Config) setErrorLevel(errLevel string) error {
@@ -78,6 +83,9 @@ type RawConfig struct {
 	IgnoredDirs     []string     `json:"ignored_dirs,omitempty"`
 	Targets         []*RawTarget `json:"targets"`
 	Outputs         Outputs      `json:"outputs,omitempty"`
+	// MaxDataBytes is a pointer so an explicitly configured value
+	// can be distinguished from an unset one.
+	MaxDataBytes *int64 `json:"max_data_bytes,omitempty"`
 }
 
 func (rc *RawConfig) GetTarget(targetID string) (*RawTarget, error) {
@@ -96,6 +104,13 @@ func (rc *RawConfig) Parse() (*Config, error) {
 		Outputs: rc.Outputs,
 	}
 	cfg.setIgnoredPatterns(rc.IgnoredDirs)
+
+	if rc.MaxDataBytes != nil {
+		if *rc.MaxDataBytes <= 0 {
+			return nil, errors.New("max_data_bytes must be a positive integer")
+		}
+		cfg.MaxDataBytes = *rc.MaxDataBytes
+	}
 
 	if err := cfg.setErrorLevel(rc.ErrorLevel); err != nil {
 		return nil, err
@@ -127,4 +142,17 @@ func (rc *RawConfig) Parse() (*Config, error) {
 	}
 	cfg.ModuleArchives = moduleArchives
 	return cfg, nil
+}
+
+// ParseMaxDataBytes parses the value of the --max-data-bytes command line option.
+// The value must be a positive integer.
+func ParseMaxDataBytes(s string) (int64, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("max_data_bytes must be a positive integer: %w", err)
+	}
+	if n <= 0 {
+		return 0, errors.New("max_data_bytes must be a positive integer")
+	}
+	return n, nil
 }

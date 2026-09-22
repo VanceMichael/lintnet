@@ -50,7 +50,7 @@ func (m *MockModuleInstaller) Installs(ctx context.Context, logger *slog.Logger,
 }
 
 type Linter interface {
-	Lint(targets []*filefind.Target) ([]*domain.Result, error)
+	Lint(targets []*filefind.Target, maxDataBytes int64) ([]*domain.Result, error)
 }
 
 type FileFinder interface {

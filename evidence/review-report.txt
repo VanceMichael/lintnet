@@ -1,0 +1,8 @@
+项目：lintnet max_data_bytes；验证：go test -count=1 ./... 与目标包 -race 均通过
+Rubric ID：1｜状态：通过｜期望行为：配置与命令行覆盖，默认无限制，非法值前置拒绝｜实际观察：正整数解析成功，命令行覆盖配置，零值负数非法字符串在执行前返回错误｜直接证据：pkg/config/config.go；pkg/controller/lint/lint.go；pkg/controller/testcmd/testcmd.go；配置覆盖和非法值测试
+Rubric ID：2｜状态：通过｜期望行为：物理文件有界读取，增长文件不越界并保留路径｜实际观察：readFile 用 LimitReader(max+1)，超限返回 DataTooLargeError 并保留原始路径｜直接证据：pkg/encoding/parser.go；TestReadFile_DoesNotReadExcessBytes；TestReadFile_FileGrowingAfterDiscovered
+Rubric ID：3｜状态：通过｜期望行为：普通规则超限后继续其他文件并保留成功结果｜实际观察：每个数据文件独立生成结果，超限转为当前文件错误，后续文件继续评估｜直接证据：pkg/lint/linter.go 的 lintNonCombineFiles 和 lintNonCombineFile；隔离测试
+Rubric ID：4｜状态：通过｜期望行为：combined 使用累计预算，超限不执行截断或缺项数据并列出参与文件｜实际观察：每个文件使用剩余预算，累计超限返回 CombinedDataTooLargeError，evaluator 不执行，错误包含全部文件，普通结果保留｜直接证据：pkg/lint/linter.go 的 parseCombinedDataFiles 和 lintCombineFiles；combined 测试
+Rubric ID：5｜状态：通过｜期望行为：test 的 data_file 与 data_files 共用预算，单个用例超限后继续后续用例｜实际观察：两种读取路径都调用 DataFileParser，当前用例记录失败，tests 继续遍历｜直接证据：pkg/controller/testcmd/testcmd.go 的 readDatafile、readDatafiles、tests；测试通过
+Rubric ID：6｜状态：通过｜期望行为：单文件超限、组合超限和解码失败区分并令命令失败｜实际观察：三类错误文本和结果字段不同，错误级别决定失败｜直接证据：pkg/encoding/parser.go；pkg/controller/lint/lint.go；错误分类测试
+Rubric ID：7｜状态：通过｜期望行为：未配置上限时格式、过滤、规则、夹具和输出兼容｜实际观察：零值继续 afero.ReadFile，普通、combined、test 走默认路径，全量非缓存回归通过｜直接证据：pkg/encoding/parser.go；pkg/lint/linter.go；pkg/controller/testcmd/testcmd.go；go test -count=1 ./...

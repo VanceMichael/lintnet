@@ -25,6 +25,9 @@ type ParamLint struct {
 	Output          string   `json:"output,omitempty"`
 	OutputSuccess   bool     `json:"output_success,omitempty"`
 	PWD             string   `json:"pwd,omitempty"`
+	// MaxDataBytes is the raw value of the --max-data-bytes command line option.
+	// If set, it overrides max_data_bytes in the configuration file.
+	MaxDataBytes string `json:"max_data_bytes,omitempty"`
 }
 
 func (p *ParamLint) FilterParam() *filefilter.Param {
@@ -70,6 +73,14 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	}
 
 	logger.Debug("parse config", "config", log.JSON(cfg), "raw_config", log.JSON(rawCfg))
+
+	// Resolve max_data_bytes.
+	// The command line option overrides the configuration file.
+	// An invalid value fails before modules are downloaded.
+	maxDataBytes, err := getMaxDataBytes(param.MaxDataBytes, cfg.MaxDataBytes)
+	if err != nil {
+		return err
+	}
 
 	// Get a directory of the configuration file.
 	cfgDir := filepath.Dir(rawCfg.FilePath)
@@ -120,7 +131,7 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	}
 
 	// Lint targets.
-	results, err := c.linter.Lint(targets)
+	results, err := c.linter.Lint(targets, maxDataBytes)
 	if err != nil {
 		return fmt.Errorf("lint targets: %w", err)
 	}
@@ -139,4 +150,17 @@ func getErrorLevel(errLevel string, defaultErrorLevel errlevel.Level) (errlevel.
 		return ll, err //nolint:wrapcheck
 	}
 	return ll, nil
+}
+
+// getMaxDataBytes resolves max_data_bytes.
+// If the command line option is set, it overrides the configuration file.
+func getMaxDataBytes(cliValue string, cfgValue int64) (int64, error) {
+	if cliValue == "" {
+		return cfgValue, nil
+	}
+	n, err := config.ParseMaxDataBytes(cliValue)
+	if err != nil {
+		return 0, fmt.Errorf("parse the --max-data-bytes option: %w", err)
+	}
+	return n, nil
 }

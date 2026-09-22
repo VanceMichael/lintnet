@@ -10,6 +10,7 @@ sidebar_position: 400
 - [LINTNET_ERROR_LEVEL](guides/error-level.md): `debug|info|warn|error`
 - [LINTNET_SHOWN_ERROR_LEVEL](guides/error-level.md): `debug|info|warn|error`
 - `LINTNET_OUTPUT_SUCCESS`: `true|false`
+- `LINTNET_MAX_DATA_BYTES`: positive integer. Maximum number of bytes lintnet reads from each data file
 - `LINTNET_LOG_LEVEL`: `trace|debug|info|warn|error|fatal|panic`
 - `LINTNET_LOG_COLOR`: `auto|always|never`
 - `LINTNET_GITHUB_TOKEN`: GitHub Access Token for getting Modules
@@ -156,6 +157,34 @@ In the above case, if `**/tfaction.yaml` matches `foo/tfaction.yaml` and `bar/tf
 ### .outputs
 
 Please see [Customize Output](/docs/guides/customize-output/).
+
+### .max_data_bytes
+
+`max_data_bytes` limits the number of bytes lintnet reads from each data file.
+It is optional and defaults to no limit.
+The value must be a positive integer.
+
+```jsonnet
+function(param) {
+  max_data_bytes: 1048576, // 1 MiB
+  targets: [
+    // ...
+  ],
+}
+```
+
+The limit applies both to each physical data file and, when [linting across multiple files](/docs/guides/lint-across-files/), to the cumulative number of bytes of the data files passed to a combined rule.
+This prevents lintnet from consuming too much memory when a broad glob accidentally matches an unexpectedly large file.
+
+You can override the configuration file by the command line option `--max-data-bytes` or the environment variable `LINTNET_MAX_DATA_BYTES`.
+
+```sh
+lintnet lint --max-data-bytes 1048576
+```
+
+When a non-combined rule hits an oversized data file, lintnet reports the target id and the data file path and continues linting other files.
+When the cumulative size of a combined data set exceeds the limit, the combined rule isn't executed and lintnet reports all files participating in the data set.
+In either case the command fails, while results of the other rules and files are preserved.
 
 ## File paths in configuration files
 

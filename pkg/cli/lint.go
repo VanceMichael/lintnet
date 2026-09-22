@@ -31,6 +31,7 @@ type LintArgs struct {
 	ShownErrorLevel string
 	OutputSuccess   bool
 	FilePaths       []string
+	MaxDataBytes    string
 }
 
 func (lc *lintCommand) command(logger *slogutil.Logger, gFlags *GlobalFlags) *cli.Command { //nolint:funlen
@@ -94,6 +95,12 @@ $ lintnet lint -output-success
 				Sources:     cli.EnvVars("LINTNET_OUTPUT_SUCCESS"),
 				Destination: &args.OutputSuccess,
 			},
+			&cli.StringFlag{
+				Name:        "max-data-bytes",
+				Usage:       "Maximum number of bytes lintnet reads from each data file. It overrides max_data_bytes in the configuration file. Must be a positive integer",
+				Sources:     cli.EnvVars("LINTNET_MAX_DATA_BYTES"),
+				Destination: &args.MaxDataBytes,
+			},
 		},
 		Arguments: []cli.Argument{
 			&cli.StringArgs{
@@ -148,5 +155,6 @@ func (lc *lintCommand) action(ctx context.Context, logger *slogutil.Logger, args
 		RootDir:         rootDir,
 		DataRootDir:     pwd,
 		PWD:             pwd,
+		MaxDataBytes:    args.MaxDataBytes,
 	})
 }

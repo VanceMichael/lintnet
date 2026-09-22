@@ -207,3 +207,91 @@ func TestRawConfig_Parse(t *testing.T) { //nolint:funlen
 		})
 	}
 }
+
+func TestRawConfig_Parse_MaxDataBytes(t *testing.T) {
+	t.Parallel()
+	data := []struct {
+		name  string
+		n     *int64
+		exp   int64
+		isErr bool
+	}{
+		{
+			name: "unset",
+			exp:  0,
+		},
+		{
+			name: "positive",
+			n:    ptr[int64](100),
+			exp:  100,
+		},
+		{
+			name:  "zero",
+			n:     ptr[int64](0),
+			isErr: true,
+		},
+		{
+			name:  "negative",
+			n:     ptr[int64](-1),
+			isErr: true,
+		},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := (&config.RawConfig{MaxDataBytes: d.n}).Parse()
+			if err != nil {
+				if d.isErr {
+					return
+				}
+				t.Fatal(err)
+			}
+			if d.isErr {
+				t.Fatal("error must be returned")
+			}
+			if cfg.MaxDataBytes != d.exp {
+				t.Fatalf("got %d, wanted %d", cfg.MaxDataBytes, d.exp)
+			}
+		})
+	}
+}
+
+func TestParseMaxDataBytes(t *testing.T) {
+	t.Parallel()
+	data := []struct {
+		name  string
+		s     string
+		exp   int64
+		isErr bool
+	}{
+		{name: "positive", s: "100", exp: 100},
+		{name: "positive with spaces", s: " 100 ", exp: 100},
+		{name: "empty", s: "", isErr: true},
+		{name: "zero", s: "0", isErr: true},
+		{name: "negative", s: "-1", isErr: true},
+		{name: "float", s: "1.5", isErr: true},
+		{name: "non numeric", s: "abc", isErr: true},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			t.Parallel()
+			n, err := config.ParseMaxDataBytes(d.s)
+			if err != nil {
+				if d.isErr {
+					return
+				}
+				t.Fatal(err)
+			}
+			if d.isErr {
+				t.Fatal("error must be returned")
+			}
+			if n != d.exp {
+				t.Fatalf("got %d, wanted %d", n, d.exp)
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}

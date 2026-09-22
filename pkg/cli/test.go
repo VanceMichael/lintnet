@@ -24,8 +24,9 @@ type testCommand struct {
 type TestArgs struct {
 	*GlobalFlags
 
-	Target    string
-	FilePaths []string
+	Target       string
+	FilePaths    []string
+	MaxDataBytes string
 }
 
 func (tc *testCommand) command(logger *slogutil.Logger, gFlags *GlobalFlags) *cli.Command {
@@ -61,6 +62,12 @@ You can test only a specific target with -target option.
 				Aliases:     []string{"t"},
 				Usage:       "Target ID",
 				Destination: &args.Target,
+			},
+			&cli.StringFlag{
+				Name:        "max-data-bytes",
+				Usage:       "Maximum number of bytes lintnet reads from each data file. It overrides max_data_bytes in the configuration file. Must be a positive integer",
+				Sources:     cli.EnvVars("LINTNET_MAX_DATA_BYTES"),
+				Destination: &args.MaxDataBytes,
 			},
 		},
 		Arguments: []cli.Argument{
@@ -110,5 +117,6 @@ func (tc *testCommand) action(ctx context.Context, logger *slogutil.Logger, args
 		TargetID:       args.Target,
 		RootDir:        rootDir,
 		PWD:            pwd,
+		MaxDataBytes:   args.MaxDataBytes,
 	})
 }

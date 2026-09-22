@@ -15,6 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/lintnet/lintnet/pkg/config"
 	"github.com/lintnet/lintnet/pkg/domain"
+	"github.com/lintnet/lintnet/pkg/encoding"
 	"github.com/lintnet/lintnet/pkg/filefilter"
 	"github.com/lintnet/lintnet/pkg/jsonnet"
 	"github.com/spf13/afero"
@@ -27,6 +28,9 @@ type ParamTest struct {
 	TargetID       string
 	PWD            string
 	FilePaths      []string
+	// MaxDataBytes is the raw value of the --max-data-bytes command line option.
+	// If set, it overrides max_data_bytes in the configuration file.
+	MaxDataBytes string
 }
 
 func (p *ParamTest) FilterParam() *filefilter.Param {
@@ -37,9 +41,20 @@ func (p *ParamTest) FilterParam() *filefilter.Param {
 }
 
 func (c *Controller) Test(_ context.Context, logger *slog.Logger, param *ParamTest) error {
-	pairs, err := c.listPairs(logger, param)
+	pairs, cfgMaxDataBytes, err := c.listPairs(logger, param)
 	if err != nil {
 		return err
+	}
+
+	// The command line option overrides the configuration file.
+	// An invalid value fails before test cases are executed.
+	maxDataBytes := cfgMaxDataBytes
+	if param.MaxDataBytes != "" {
+		n, err := config.ParseMaxDataBytes(param.MaxDataBytes)
+		if err != nil {
+			return fmt.Errorf("parse the --max-data-bytes option: %w", err)
+		}
+		maxDataBytes = n
 	}
 
 	testResultTemplate, err := template.New("_").Parse(string(testResultTemplateByte))
@@ -49,7 +64,7 @@ func (c *Controller) Test(_ context.Context, logger *slog.Logger, param *ParamTe
 
 	failedResults := make([]*FailedResult, 0, len(pairs))
 	for _, pair := range pairs {
-		if results := c.tests(pair); len(results) > 0 {
+		if results := c.tests(pair, maxDataBytes); len(results) > 0 {
 			failedResults = append(failedResults, results...)
 		}
 	}
@@ -62,40 +77,42 @@ func (c *Controller) Test(_ context.Context, logger *slog.Logger, param *ParamTe
 	return errors.New("test failed")
 }
 
-func (c *Controller) listPairs(logger *slog.Logger, param *ParamTest) ([]*TestPair, error) {
+func (c *Controller) listPairs(logger *slog.Logger, param *ParamTest) ([]*TestPair, int64, error) {
 	if len(param.FilePaths) != 0 {
-		return c.listPairsWithFilePaths(param.FilePaths)
+		pairs, err := c.listPairsWithFilePaths(param.FilePaths)
+		return pairs, 0, err
 	}
 
 	rawCfg := &config.RawConfig{}
 	if err := c.configReader.Read(param.ConfigFilePath, rawCfg); err != nil {
 		if param.ConfigFilePath == "" && errors.Is(err, fs.ErrNotExist) {
-			return c.listPairsWithFilePaths([]string{"."})
+			pairs, err := c.listPairsWithFilePaths([]string{"."})
+			return pairs, 0, err
 		}
-		return nil, fmt.Errorf("read a configuration file: %w", err)
+		return nil, 0, fmt.Errorf("read a configuration file: %w", err)
 	}
 
 	if param.TargetID != "" {
 		target, err := rawCfg.GetTarget(param.TargetID)
 		if err != nil {
-			return nil, fmt.Errorf("get a target from configuration file by target id: %w", err)
+			return nil, 0, fmt.Errorf("get a target from configuration file by target id: %w", err)
 		}
 		rawCfg.Targets = []*config.RawTarget{target}
 	}
 
 	cfg, err := rawCfg.Parse()
 	if err != nil {
-		return nil, fmt.Errorf("parse a configuration file: %w", err)
+		return nil, 0, fmt.Errorf("parse a configuration file: %w", err)
 	}
 
 	cfgDir := filepath.Dir(rawCfg.FilePath)
 
 	lintFiles, err := c.fileFinder.FindLintFiles(logger, cfg, cfgDir)
 	if err != nil {
-		return nil, fmt.Errorf("find files: %w", err)
+		return nil, 0, fmt.Errorf("find files: %w", err)
 	}
 
-	return c.filterLintFilesWithTest(logger, lintFiles), nil
+	return c.filterLintFilesWithTest(logger, lintFiles), cfg.MaxDataBytes, nil
 }
 
 func getTestFilePath(lintFilePath string) string {
@@ -169,9 +186,9 @@ func (c *Controller) listPairsWithFilePaths(filePaths []string) ([]*TestPair, er
 	return pairs, nil
 }
 
-func (c *Controller) test(pair *TestPair, td *TestData) *FailedResult { //nolint:cyclop
+func (c *Controller) test(pair *TestPair, td *TestData, maxDataBytes int64) *FailedResult { //nolint:cyclop
 	if td.DataFile != "" {
-		if err := c.readDatafile(pair, td); err != nil {
+		if err := c.readDatafile(pair, td, maxDataBytes); err != nil {
 			return &FailedResult{
 				Error: err.Error(),
 			}
@@ -179,7 +196,7 @@ func (c *Controller) test(pair *TestPair, td *TestData) *FailedResult { //nolint
 	}
 
 	if len(td.DataFiles) != 0 {
-		if err := c.readDatafiles(pair, td); err != nil {
+		if err := c.readDatafiles(pair, td, maxDataBytes); err != nil {
 			return &FailedResult{
 				Error: err.Error(),
 			}
@@ -222,12 +239,12 @@ func (c *Controller) test(pair *TestPair, td *TestData) *FailedResult { //nolint
 	return nil
 }
 
-func (c *Controller) readDatafile(pair *TestPair, td *TestData) error {
+func (c *Controller) readDatafile(pair *TestPair, td *TestData, maxDataBytes int64) error {
 	p := &domain.Path{
 		Raw: td.DataFile,
 		Abs: filepath.Join(filepath.Dir(pair.TestFilePath), td.DataFile),
 	}
-	data, err := c.dataFileParser.Parse(p)
+	data, err := c.dataFileParser.Parse(p, maxDataBytes)
 	if err != nil {
 		return fmt.Errorf("read a data file: %w", err)
 	}
@@ -244,15 +261,28 @@ func (c *Controller) readDatafile(pair *TestPair, td *TestData) error {
 	return nil
 }
 
-func (c *Controller) readDatafiles(pair *TestPair, td *TestData) error {
+func (c *Controller) readDatafiles(pair *TestPair, td *TestData, maxDataBytes int64) error {
 	combinedData := make([]*domain.Data, len(td.DataFiles))
+	used := int64(0)
 	for i, dataFile := range td.DataFiles {
+		limit := int64(0)
+		if maxDataBytes > 0 {
+			limit = maxDataBytes - used
+			if limit <= 0 {
+				return fmt.Errorf("read data files: %w",
+					encoding.CombinedDataTooLargeError(dataFilePaths(td.DataFiles), maxDataBytes))
+			}
+		}
 		p := &domain.Path{
 			Raw: dataFile.Path,
 			Abs: filepath.Join(filepath.Dir(pair.TestFilePath), dataFile.Path),
 		}
-		data, err := c.dataFileParser.Parse(p)
+		data, err := c.dataFileParser.Parse(p, limit)
 		if err != nil {
+			if errors.Is(err, encoding.ErrDataTooLarge) {
+				return fmt.Errorf("read data files: %w",
+					encoding.CombinedDataTooLargeError(dataFilePaths(td.DataFiles), maxDataBytes))
+			}
 			return fmt.Errorf("read a data file: %w", slogerr.With(err, "data_file", dataFile.Path))
 		}
 		if dataFile.FakePath != "" {
@@ -262,6 +292,7 @@ func (c *Controller) readDatafiles(pair *TestPair, td *TestData) error {
 			data.Config = td.Param.Config
 		}
 		combinedData[i] = data.Data
+		used += int64(len(data.Data.Text))
 	}
 	if td.Param == nil {
 		td.Param = &domain.TopLevelArgument{}
@@ -270,7 +301,15 @@ func (c *Controller) readDatafiles(pair *TestPair, td *TestData) error {
 	return nil
 }
 
-func (c *Controller) tests(pair *TestPair) []*FailedResult {
+func dataFilePaths(files []*DataFile) []string {
+	arr := make([]string, len(files))
+	for i, f := range files {
+		arr[i] = f.Path
+	}
+	return arr
+}
+
+func (c *Controller) tests(pair *TestPair, maxDataBytes int64) []*FailedResult {
 	testData := []*TestData{}
 	if err := jsonnet.Read(c.fs, pair.TestFilePath, "{}", c.importer, &testData); err != nil {
 		return []*FailedResult{
@@ -283,7 +322,7 @@ func (c *Controller) tests(pair *TestPair) []*FailedResult {
 	}
 	results := make([]*FailedResult, 0, len(testData))
 	for _, td := range testData {
-		if result := c.test(pair, td); result != nil {
+		if result := c.test(pair, td, maxDataBytes); result != nil {
 			result.Name = td.Name
 			result.LintFilePath = pair.LintFilePath
 			result.TestFilePath = pair.TestFilePath
