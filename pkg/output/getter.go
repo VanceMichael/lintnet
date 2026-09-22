@@ -1,6 +1,7 @@
 package output
 
 import (
+	"context"
 	"errors"
 	"io"
 	"path/filepath"
@@ -60,7 +61,7 @@ func setTemplate(output *config.Output, param *ParamGet, cfgDir string) {
 }
 
 // Get returns an outputter.
-func (g *Getter) Get(outputs config.Outputs, param *ParamGet, cfgDir string) (Outputter, error) {
+func (g *Getter) Get(ctx context.Context, outputs config.Outputs, param *ParamGet, cfgDir string) (Outputter, error) {
 	if param.Output == "" {
 		return &jsonOutputter{
 			stdout: g.stdout,
@@ -81,11 +82,11 @@ func (g *Getter) Get(outputs config.Outputs, param *ParamGet, cfgDir string) (Ou
 
 	switch output.Renderer {
 	case "jsonnet":
-		return newJsonnetOutputter(g.fs, g.stdout, output, g.importer)
+		return newJsonnetOutputter(ctx, g.fs, g.stdout, output, g.importer)
 	case "text/template":
-		return newTemplateOutputter(g.stdout, g.fs, &render.TextTemplateRenderer{}, output, g.importer)
+		return newTemplateOutputter(ctx, g.stdout, g.fs, &render.TextTemplateRenderer{}, output, g.importer)
 	case "html/template":
-		return newTemplateOutputter(g.stdout, g.fs, &render.HTMLTemplateRenderer{}, output, g.importer)
+		return newTemplateOutputter(ctx, g.stdout, g.fs, &render.HTMLTemplateRenderer{}, output, g.importer)
 	}
 	return nil, errors.New("unknown renderer")
 }

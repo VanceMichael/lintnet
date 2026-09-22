@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lintnet/lintnet/pkg/domain"
@@ -18,7 +19,10 @@ func NewDataFileParser(fs afero.Fs) *DataFileParser {
 	}
 }
 
-func (dp *DataFileParser) Parse(filePath *domain.Path) (*domain.TopLevelArgument, error) {
+func (dp *DataFileParser) Parse(ctx context.Context, filePath *domain.Path) (*domain.TopLevelArgument, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	unmarshaler, fileType, err := NewUnmarshaler(filePath.Abs)
 	if err != nil {
 		return nil, slogerr.With(err, "file_path", filePath.Raw) //nolint:wrapcheck

@@ -3,6 +3,7 @@ package module
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +19,7 @@ const (
 	permissionMask = 0o7777
 )
 
-func extractTarGz(fs afero.Fs, src, dest string) error {
+func extractTarGz(ctx context.Context, fs afero.Fs, src, dest string) error {
 	f, err := fs.Open(src)
 	if err != nil {
 		return fmt.Errorf("open a tarball: %w", err)
@@ -32,7 +33,10 @@ func extractTarGz(fs afero.Fs, src, dest string) error {
 	defer gzr.Close()
 	tr := tar.NewReader(gzr)
 	for {
-		if err := readTar(fs, dest, tr); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := readTar(ctx, fs, dest, tr); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -41,7 +45,7 @@ func extractTarGz(fs afero.Fs, src, dest string) error {
 	}
 }
 
-func readTar(fs afero.Fs, dest string, tr *tar.Reader) error {
+func readTar(ctx context.Context, fs afero.Fs, dest string, tr *tar.Reader) error {
 	hdr, err := tr.Next()
 	if err != nil {
 		return fmt.Errorf("get a new entry from a tar archive: %w", err)
@@ -70,8 +74,12 @@ func readTar(fs afero.Fs, dest string, tr *tar.Reader) error {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			return fmt.Errorf("copy a file: %w", err)
 		}
+		outFile.Close()
 		return errors.New("file size exceeds the limit")
 	}
 	return nil

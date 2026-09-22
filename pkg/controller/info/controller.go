@@ -1,6 +1,7 @@
 package info
 
 import (
+	"context"
 	"io"
 	"log/slog"
 
@@ -16,7 +17,7 @@ type Controller struct {
 }
 
 type FileFinder interface {
-	Find(logger *slog.Logger, cfg *config.Config, rootDir, cfgDir string) ([]*filefind.Target, error)
+	Find(ctx context.Context, logger *slog.Logger, cfg *config.Config, rootDir, cfgDir string) ([]*filefind.Target, error)
 }
 
 type ParamController struct {

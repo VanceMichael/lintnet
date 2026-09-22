@@ -48,6 +48,10 @@ func NewInstaller(fs afero.Fs, gh GitHub, httpClient HTTPClient) *Installer {
 
 func (mi *Installer) Installs(ctx context.Context, logger *slog.Logger, param *ParamInstall, modules map[string]*config.ModuleArchive) error {
 	for _, mod := range modules {
+		if err := ctx.Err(); err != nil {
+			// Don't start installing a new module after cancellation.
+			return err
+		}
 		modID := mod.String()
 		logger := logger.With("module_id", modID)
 		if err := mi.Install(ctx, logger, param, mod); err != nil {
@@ -58,7 +62,8 @@ func (mi *Installer) Installs(ctx context.Context, logger *slog.Logger, param *P
 }
 
 func (mi *Installer) Install(ctx context.Context, logger *slog.Logger, param *ParamInstall, mod *config.ModuleArchive) error { //nolint:funlen,cyclop
-	// Check if the module is already downloaded
+	// Check if the module is already downloaded.
+	// An already installed module is reused as is.
 	dest := filepath.Join(param.BaseDir, filepath.FromSlash(mod.FilePath()))
 	f, err := afero.DirExists(mi.fs, dest)
 	if err != nil {
@@ -66,6 +71,10 @@ func (mi *Installer) Install(ctx context.Context, logger *slog.Logger, param *Pa
 	}
 	if f {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		// Don't start a new download after cancellation.
+		return err
 	}
 	if err := osfile.MkdirAll(mi.fs, filepath.Dir(dest)); err != nil {
 		return fmt.Errorf("create parent directories: %w", err)
@@ -75,19 +84,19 @@ func (mi *Installer) Install(ctx context.Context, logger *slog.Logger, param *Pa
 		Ref: mod.Ref,
 	}, 5) //nolint:mnd
 	if err != nil {
-		return fmt.Errorf("get an archive link by GitHub API: %w", slogerr.With(err,
+		return mi.afterError(ctx, fmt.Errorf("get an archive link by GitHub API: %w", slogerr.With(err,
 			"module_repo_owner", mod.RepoOwner,
 			"module_repo_name", mod.RepoName,
 			"module_ref", mod.Ref,
-		))
+		)))
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return fmt.Errorf("create a HTTP request: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("create a HTTP request: %w", err))
 	}
 	resp, err := mi.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("send a HTTP request: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("send a HTTP request: %w", err))
 	}
 	if resp.StatusCode >= 300 { //nolint:mnd
 		return errors.New("HTTP status code >= 300")
@@ -95,7 +104,7 @@ func (mi *Installer) Install(ctx context.Context, logger *slog.Logger, param *Pa
 	defer resp.Body.Close()
 	tempDir, err := afero.TempDir(mi.fs, "", "")
 	if err != nil {
-		return fmt.Errorf("create a temporal directory: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("create a temporal directory: %w", err))
 	}
 	defer func() {
 		if err := mi.fs.RemoveAll(tempDir); err != nil {
@@ -105,26 +114,61 @@ func (mi *Installer) Install(ctx context.Context, logger *slog.Logger, param *Pa
 	tempDest := filepath.Join(tempDir, "module.tar.gz")
 	tempFile, err := mi.fs.Create(tempDest)
 	if err != nil {
-		return fmt.Errorf("create a temporal file: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("create a temporal file: %w", err))
 	}
 	defer tempFile.Close()
 	logger.Info("downloading a module")
 	if _, err := io.Copy(tempFile, resp.Body); err != nil {
-		return fmt.Errorf("download a module on a temporal directory: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("download a module on a temporal directory: %w", err))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	unarchiveDest := filepath.Join(tempDir, "unarchived_dir")
-	if err := extractTarGz(mi.fs, tempDest, unarchiveDest); err != nil {
-		return fmt.Errorf("unarchive a tarball: %w", err)
+	if err := extractTarGz(ctx, mi.fs, tempDest, unarchiveDest); err != nil {
+		return mi.afterError(ctx, fmt.Errorf("unarchive a tarball: %w", err))
 	}
 	dirs, err := os.ReadDir(unarchiveDest)
 	if err != nil {
-		return fmt.Errorf("read a directory: %w", err)
+		return mi.afterError(ctx, fmt.Errorf("read a directory: %w", err))
 	}
 	if len(dirs) != 1 {
 		return errSubDirMustBeOne
 	}
-	if err := osfile.Copy(mi.fs, filepath.Join(unarchiveDest, dirs[0].Name()), dest); err != nil {
-		return fmt.Errorf("copy a module from a teporal directory: %w", err)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Copy the module into a staging directory located next to the destination
+	// so the final move is atomic. The destination directory is never created
+	// until the module is fully copied, hence a canceled installation can't be
+	// mistaken for an installed module by DirExists.
+	stageDir, err := afero.TempDir(mi.fs, filepath.Dir(dest), fmt.Sprintf(".%s.tmp-", filepath.Base(dest)))
+	if err != nil {
+		return mi.afterError(ctx, fmt.Errorf("create a staging directory: %w", err))
+	}
+	defer func() {
+		if err := mi.fs.RemoveAll(stageDir); err != nil {
+			slogerr.WithError(logger, err).Warn("delete a staging directory")
+		}
+	}()
+	if err := osfile.CopyContext(ctx, mi.fs, filepath.Join(unarchiveDest, dirs[0].Name()), stageDir); err != nil {
+		return mi.afterError(ctx, fmt.Errorf("copy a module from a temporal directory: %w", err))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := mi.fs.Rename(stageDir, dest); err != nil {
+		return mi.afterError(ctx, fmt.Errorf("move a module from a staging directory: %w", err))
 	}
 	return nil
+}
+
+// afterError returns the bare cancellation error when ctx is canceled,
+// so cancellation is never disguised as an ordinary download/install error.
+// Otherwise it returns err unchanged.
+func (mi *Installer) afterError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
 }

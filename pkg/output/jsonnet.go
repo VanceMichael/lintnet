@@ -1,6 +1,7 @@
 package output
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,8 +21,8 @@ type jsonnetOutputter struct {
 	config    map[string]any
 }
 
-func newJsonnetOutputter(fs afero.Fs, stdout io.Writer, output *config.Output, importer gojsonnet.Importer) (*jsonnetOutputter, error) {
-	node, err := jsonnet.ReadToNode(fs, output.Template)
+func newJsonnetOutputter(ctx context.Context, fs afero.Fs, stdout io.Writer, output *config.Output, importer gojsonnet.Importer) (*jsonnetOutputter, error) {
+	node, err := jsonnet.ReadToNode(ctx, fs, output.Template)
 	if err != nil {
 		return nil, fmt.Errorf("read a template as Jsonnet: %w", err)
 	}
@@ -33,7 +34,7 @@ func newJsonnetOutputter(fs afero.Fs, stdout io.Writer, output *config.Output, i
 		config:   output.Config,
 	}
 	if output.Transform != "" {
-		node, err := jsonnet.ReadToNode(fs, output.Transform)
+		node, err := jsonnet.ReadToNode(ctx, fs, output.Transform)
 		if err != nil {
 			return nil, fmt.Errorf("read a transform as Jsonnet: %w", err)
 		}

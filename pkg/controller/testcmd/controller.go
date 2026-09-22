@@ -1,6 +1,7 @@
 package testcmd
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"io"
@@ -111,7 +112,7 @@ type Controller struct {
 }
 
 type FileFinder interface {
-	FindLintFiles(logger *slog.Logger, cfg *config.Config, cfgDir string) ([]*config.LintFile, error)
+	FindLintFiles(ctx context.Context, logger *slog.Logger, cfg *config.Config, cfgDir string) ([]*config.LintFile, error)
 }
 
 type ParamController struct {

@@ -1,6 +1,8 @@
 package output
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +24,7 @@ type templateOutputter struct {
 	importer gojsonnet.Importer
 }
 
-func newTemplateOutputter(stdout io.Writer, fs afero.Fs, renderer render.TemplateRenderer, output *config.Output, importer gojsonnet.Importer) (*templateOutputter, error) {
+func newTemplateOutputter(ctx context.Context, stdout io.Writer, fs afero.Fs, renderer render.TemplateRenderer, output *config.Output, importer gojsonnet.Importer) (*templateOutputter, error) {
 	if output.Template == "" {
 		return nil, errors.New("template is required")
 	}
@@ -36,7 +38,7 @@ func newTemplateOutputter(stdout io.Writer, fs afero.Fs, renderer render.Templat
 	}
 	var node jsonnet.Node
 	if output.Transform != "" {
-		n, err := jsonnet.ReadToNode(fs, output.Transform)
+		n, err := jsonnet.ReadToNode(ctx, fs, output.Transform)
 		if err != nil {
 			return nil, fmt.Errorf("read a transform as Jsonnet: %w", err)
 		}
@@ -74,8 +76,14 @@ func (o *templateOutputter) Output(result *Output) error {
 			return fmt.Errorf("unmarshal result as JSON: %w", err)
 		}
 	}
-	if err := o.template.Execute(o.stdout, param); err != nil {
+	// Render into a buffer and write it in a single write call so a canceled
+	// process never leaves a half-written document behind.
+	var buf bytes.Buffer
+	if err := o.template.Execute(&buf, param); err != nil {
 		return fmt.Errorf("render a template: %w", err)
+	}
+	if _, err := o.stdout.Write(buf.Bytes()); err != nil {
+		return fmt.Errorf("write the result: %w", err)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 
@@ -14,7 +15,11 @@ type Outputter interface {
 	Output(result *output.Output) error
 }
 
-func (c *Controller) Output(logger *slog.Logger, errLevel, shownErrLevel errlevel.Level, results []*domain.Result, outputters []Outputter, outputSuccess bool) error {
+func (c *Controller) Output(ctx context.Context, logger *slog.Logger, errLevel, shownErrLevel errlevel.Level, results []*domain.Result, outputters []Outputter, outputSuccess bool) error {
+	if err := ctx.Err(); err != nil {
+		// A canceled run must not write a partial success document.
+		return err
+	}
 	fes := &output.Output{
 		Errors:         output.FormatResults(logger, results, shownErrLevel),
 		LintnetVersion: c.param.Version,

@@ -75,7 +75,7 @@ func TestFinder_Find(t *testing.T) { //nolint:funlen
 			}
 			finder := filefind.NewFileFinder(fs)
 			logger := slog.New(slog.DiscardHandler)
-			targets, err := finder.Find(logger, d.cfg, d.rootDir, d.cfgDir)
+			targets, err := finder.Find(t.Context(), logger, d.cfg, d.rootDir, d.cfgDir)
 			if err != nil {
 				if d.isErr {
 					t.Fatal(err)

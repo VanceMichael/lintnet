@@ -1,6 +1,7 @@
 package lintfile
 
 import (
+	"context"
 	"strings"
 
 	"github.com/lintnet/lintnet/pkg/config"
@@ -20,8 +21,8 @@ func NewParser(fs afero.Fs) *Parser {
 	}
 }
 
-func (p *Parser) Parse(lintFile *config.LintFile) (*domain.Node, error) {
-	node, err := jsonnet.ReadToNode(p.fs, lintFile.Path)
+func (p *Parser) Parse(ctx context.Context, lintFile *config.LintFile) (*domain.Node, error) {
+	node, err := jsonnet.ReadToNode(ctx, p.fs, lintFile.Path)
 	if err != nil {
 		return nil, err //nolint:wrapcheck
 	}
@@ -34,10 +35,14 @@ func (p *Parser) Parse(lintFile *config.LintFile) (*domain.Node, error) {
 	}, nil
 }
 
-func (p *Parser) Parses(lintFiles []*config.LintFile) ([]*domain.Node, error) {
+func (p *Parser) Parses(ctx context.Context, lintFiles []*config.LintFile) ([]*domain.Node, error) {
 	nodes := make([]*domain.Node, 0, len(lintFiles))
 	for _, lintFile := range lintFiles {
-		node, err := p.Parse(lintFile)
+		if err := ctx.Err(); err != nil {
+			// Don't start reading a new lint file after cancellation.
+			return nil, err
+		}
+		node, err := p.Parse(ctx, lintFile)
 		if err != nil {
 			return nil, slogerr.With(err, "file_path", lintFile.Path) //nolint:wrapcheck
 		}

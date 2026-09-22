@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -30,9 +31,9 @@ func New(fs afero.Fs, importer gojsonnet.Importer) *Reader {
 // The default paths are "lintnet.jsonnet" and ".lintnet.jsonnet".
 // The configuration file is loaded to cfg.
 // If it fails to find, read, or parse a configuration file, it returns an error.
-func (r *Reader) Read(p string, cfg *config.RawConfig) error {
+func (r *Reader) Read(ctx context.Context, p string, cfg *config.RawConfig) error {
 	if p != "" {
-		if err := r.read(p, cfg); err != nil {
+		if err := r.read(ctx, p, cfg); err != nil {
 			return fmt.Errorf("read a config file: %w", err)
 		}
 		cfg.FilePath = p
@@ -43,7 +44,7 @@ func (r *Reader) Read(p string, cfg *config.RawConfig) error {
 		".lintnet.jsonnet",
 	}
 	for _, p := range paths {
-		if err := r.read(p, cfg); err != nil {
+		if err := r.read(ctx, p, cfg); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
@@ -55,6 +56,6 @@ func (r *Reader) Read(p string, cfg *config.RawConfig) error {
 	return fmt.Errorf("config file isn't found: %w", os.ErrNotExist)
 }
 
-func (r *Reader) read(p string, cfg *config.RawConfig) error {
-	return jsonnet.Read(r.fs, p, "{}", r.importer, cfg) //nolint:wrapcheck
+func (r *Reader) read(ctx context.Context, p string, cfg *config.RawConfig) error {
+	return jsonnet.Read(ctx, r.fs, p, "{}", r.importer, cfg) //nolint:wrapcheck
 }

@@ -1,0 +1,8 @@
+项目：lintnet 取消生命周期；验证：go test -count=1 ./... 与 cli/module/osfile/lint/testcmd/output -race 均通过
+Rubric ID：1｜状态：通过｜期望行为：首次取消后不启动新下载、读取、规则或用例并返回规范取消错误｜实际观察：首信号取消 context，各模块和迭代入口检查 ctx.Err，runner 返回 130 和 lintnet: canceled｜直接证据：pkg/cli/signal.go、runner.go、pkg/module/install.go、pkg/filefind、pkg/lint/linter.go、testcmd.go；取消测试
+Rubric ID：2｜状态：通过｜期望行为：取消清理临时和不完整发布状态，重跑重新安装｜实际观察：下载解压使用临时目录，复制到目标旁 staging，完整复制后 Rename，取消时清理 staging 和临时目录，dest 不提前存在，重跑成功｜直接证据：pkg/module/install.go、pkg/osfile/copy.go；安装清理和重跑测试
+Rubric ID：3｜状态：通过｜期望行为：lint 在文件、combined 或规则间取消时停止，不转 finding 或成功｜实际观察：Linter 在 target、data file、combined 入口检查 context，取消从 parser/evaluator 返回，非取消错误才生成 finding｜直接证据：pkg/lint/linter.go；取消测试和全量回归
+Rubric ID：4｜状态：通过｜期望行为：test 在 pair 或 case 间取消，且与断言、夹具、Jsonnet 错误区分｜实际观察：pair、case、data_files 和 Jsonnet 读取边界检查 context，取消返回 context.Canceled，普通错误才构造 FailedResult｜直接证据：pkg/controller/testcmd/testcmd.go；取消与错误分类测试
+Rubric ID：5｜状态：未通过｜期望行为：取消不提交半个报告，正常运行只提交一次完整输出，Writer 故障单独返回｜实际观察：输出器先缓冲并单次写入，但 Controller.Output 遍历 outputters 时只记录错误并继续；Writer 失败且没有 lint finding 时函数仍返回 nil｜直接证据：pkg/controller/lint/output.go 输出循环忽略 outputter.Output 错误；pkg/output/json.go、template.go 的写入错误返回路径｜原因：Writer 错误被吞掉｜影响：输出未落地时命令返回成功，调用方无法区分输出故障｜证据位置：pkg/controller/lint/output.go；pkg/output/json.go；pkg/output/template.go
+Rubric ID：6｜状态：通过｜期望行为：重复取消或第二次终止不重复清理并可强制结束｜实际观察：notifySignal 用 sync.Once，首信号 cancel，第二信号 os.Exit(130)，模块和 staging defer 各执行一次｜直接证据：pkg/cli/signal.go；pkg/module/install.go；signal 和安装测试
+Rubric ID：7｜状态：通过｜期望行为：无取消时缓存、EOF、下载读取求值输出错误、阈值、test diff 和既有输出兼容｜实际观察：无取消继续缓存复用、正常解析和输出格式，全量非缓存及目标 race 测试通过｜直接证据：pkg/module/install.go、pkg/encoding/parser.go、pkg/output；go test -count=1 ./...

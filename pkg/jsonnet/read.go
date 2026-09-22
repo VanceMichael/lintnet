@@ -1,6 +1,7 @@
 package jsonnet
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -9,14 +10,25 @@ import (
 	"github.com/spf13/afero"
 )
 
-func Read(fs afero.Fs, filePath, tla string, importer jsonnet.Importer, dest any) error {
+func Read(ctx context.Context, fs afero.Fs, filePath, tla string, importer jsonnet.Importer, dest any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	vm := NewVM(tla, importer)
-	node, err := ReadToNode(fs, filePath)
+	node, err := ReadToNode(ctx, fs, filePath)
 	if err != nil {
 		return fmt.Errorf("parse a file as Jsonnet: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	result, err := vm.Evaluate(node)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The evaluation failed because the work was canceled
+			// (e.g. a module import triggered by the evaluation was canceled).
+			return ctxErr
+		}
 		return fmt.Errorf("evaluate a file as Jsonnet: %w", err)
 	}
 	if err := json.Unmarshal([]byte(result), dest); err != nil {
@@ -25,7 +37,10 @@ func Read(fs afero.Fs, filePath, tla string, importer jsonnet.Importer, dest any
 	return nil
 }
 
-func ReadToNode(fs afero.Fs, filePath string) (ast.Node, error) {
+func ReadToNode(ctx context.Context, fs afero.Fs, filePath string) (ast.Node, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	b, err := afero.ReadFile(fs, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read a jsonnet file: %w", err)

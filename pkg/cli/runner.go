@@ -2,7 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
 
+	"github.com/suzuki-shunsuke/go-error-with-exit-code/ecerror"
 	"github.com/suzuki-shunsuke/slog-util/slogutil"
 	"github.com/suzuki-shunsuke/urfave-cli-v3-util/urfave"
 	"github.com/urfave/cli/v3"
@@ -16,8 +20,10 @@ type GlobalFlags struct {
 }
 
 func Run(ctx context.Context, logger *slogutil.Logger, env *urfave.Env) error {
+	ctx, stop := notifySignal(ctx)
+	defer stop()
 	gFlags := &GlobalFlags{}
-	return urfave.Command(env, &cli.Command{ //nolint:wrapcheck
+	err := urfave.Command(env, &cli.Command{ //nolint:wrapcheck
 		Name:  "lintnet",
 		Usage: "Powerful, Secure, Shareable Linter Powered by Jsonnet. https://lintnet.github.io/",
 		Flags: []cli.Flag{
@@ -49,4 +55,12 @@ func Run(ctx context.Context, logger *slogutil.Logger, env *urfave.Env) error {
 			(&newCommand{}).command(logger, gFlags),
 		},
 	}).Run(ctx, env.Args)
+	if errors.Is(err, context.Canceled) {
+		// Cancellation is an observable lifecycle, not an ordinary command error.
+		// Don't print the stack of the canceled work; exit with the conventional
+		// signal cancellation code.
+		fmt.Fprintln(os.Stderr, "lintnet: canceled")
+		return ecerror.Wrap(urfave.ErrSilent, exitCodeCanceled)
+	}
+	return err
 }

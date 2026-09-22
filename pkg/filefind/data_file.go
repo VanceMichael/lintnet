@@ -1,6 +1,7 @@
 package filefind
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -11,9 +12,9 @@ import (
 	"github.com/spf13/afero"
 )
 
-func (f *FileFinder) findDataFiles(dataBasePath string, files []*config.DataFile, cfgDir string, ignorePatterns []string) ([][]*domain.Path, error) { //nolint:cyclop
+func (f *FileFinder) findDataFiles(ctx context.Context, dataBasePath string, files []*config.DataFile, cfgDir string, ignorePatterns []string) ([][]*domain.Path, error) { //nolint:cyclop
 	if dataBasePath == "" {
-		dataFiles, err := f.findFilesFromPaths(files, cfgDir, ignorePatterns)
+		dataFiles, err := f.findFilesFromPaths(ctx, files, cfgDir, ignorePatterns)
 		if err != nil {
 			return nil, err
 		}
@@ -22,6 +23,9 @@ func (f *FileFinder) findDataFiles(dataBasePath string, files []*config.DataFile
 
 	matches := map[string]struct{}{}
 	if err := doublestar.GlobWalk(afero.NewIOFS(f.fs), filepath.Join(cfgDir, filepath.FromSlash(dataBasePath)), func(path string, d fs.DirEntry) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := ignorePath(path, ignorePatterns); err != nil {
 			return err
 		}
@@ -35,7 +39,10 @@ func (f *FileFinder) findDataFiles(dataBasePath string, files []*config.DataFile
 	}
 	paths := make([][]*domain.Path, 0, len(matches))
 	for rootPath := range matches {
-		dataFiles, err := f.findFilesFromPaths(files, rootPath, ignorePatterns)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		dataFiles, err := f.findFilesFromPaths(ctx, files, rootPath, ignorePatterns)
 		if err != nil {
 			return nil, err
 		}

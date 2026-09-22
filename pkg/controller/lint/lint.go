@@ -48,8 +48,11 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	logger.Debug("parameter", "param", log.JSON(param))
 	// Find and read a configuration file.
 	rawCfg := &config.RawConfig{}
-	if err := c.configReader.Read(param.ConfigFilePath, rawCfg); err != nil {
+	if err := c.configReader.Read(ctx, param.ConfigFilePath, rawCfg); err != nil {
 		return fmt.Errorf("read a configuration file: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	logger.Debug("read config", "config", log.JSON(rawCfg))
@@ -68,6 +71,9 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	if err != nil {
 		return fmt.Errorf("parse a configuration file: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	logger.Debug("parse config", "config", log.JSON(cfg), "raw_config", log.JSON(rawCfg))
 
@@ -79,7 +85,7 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	cfgDir = filepath.Clean(cfgDir)
 
 	// Get an outputter.
-	outputter, err := c.outputGetter.Get(cfg.Outputs, param.OutputterParam(), cfgDir)
+	outputter, err := c.outputGetter.Get(ctx, cfg.Outputs, param.OutputterParam(), cfgDir)
 	if err != nil {
 		return fmt.Errorf("get an outputter: %w", err)
 	}
@@ -102,11 +108,17 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	}, cfg.ModuleArchives); err != nil {
 		return fmt.Errorf("install modules: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Find targets, which are pairs of lint files and data files.
-	targets, err := c.fileFinder.Find(logger, cfg, modRootDir, cfgDir)
+	targets, err := c.fileFinder.Find(ctx, logger, cfg, modRootDir, cfgDir)
 	if err != nil {
 		return fmt.Errorf("find files: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	logger.Debug("found files", "targets", log.JSON(targets))
@@ -120,14 +132,14 @@ func (c *Controller) Lint(ctx context.Context, logger *slog.Logger, param *Param
 	}
 
 	// Lint targets.
-	results, err := c.linter.Lint(targets)
+	results, err := c.linter.Lint(ctx, targets)
 	if err != nil {
 		return fmt.Errorf("lint targets: %w", err)
 	}
 	logger.Debug("linted", "config", log.JSON(cfg), "results", log.JSON(results), "targets", log.JSON(targets))
 
 	// Output results.
-	return c.Output(logger, errLevel, shownErrLevel, results, []Outputter{outputter}, param.OutputSuccess)
+	return c.Output(ctx, logger, errLevel, shownErrLevel, results, []Outputter{outputter}, param.OutputSuccess)
 }
 
 func getErrorLevel(errLevel string, defaultErrorLevel errlevel.Level) (errlevel.Level, error) {

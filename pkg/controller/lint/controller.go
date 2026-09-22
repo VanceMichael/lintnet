@@ -32,11 +32,11 @@ type Controller struct {
 }
 
 type OutputGetter interface {
-	Get(outputs config.Outputs, param *output.ParamGet, cfgDir string) (output.Outputter, error)
+	Get(ctx context.Context, outputs config.Outputs, param *output.ParamGet, cfgDir string) (output.Outputter, error)
 }
 
 type ConfigReader interface {
-	Read(p string, cfg *config.RawConfig) error
+	Read(ctx context.Context, p string, cfg *config.RawConfig) error
 }
 
 type ModuleInstaller interface {
@@ -50,11 +50,11 @@ func (m *MockModuleInstaller) Installs(ctx context.Context, logger *slog.Logger,
 }
 
 type Linter interface {
-	Lint(targets []*filefind.Target) ([]*domain.Result, error)
+	Lint(ctx context.Context, targets []*filefind.Target) ([]*domain.Result, error)
 }
 
 type FileFinder interface {
-	Find(logger *slog.Logger, cfg *config.Config, rootDir, cfgDir string) ([]*filefind.Target, error)
+	Find(ctx context.Context, logger *slog.Logger, cfg *config.Config, rootDir, cfgDir string) ([]*filefind.Target, error)
 }
 
 type ParamController struct {

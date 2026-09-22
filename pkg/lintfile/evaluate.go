@@ -1,7 +1,9 @@
 package lintfile
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	gojsonnet "github.com/google/go-jsonnet"
@@ -19,7 +21,10 @@ func NewEvaluator(importer gojsonnet.Importer) *Evaluator {
 	}
 }
 
-func (le *Evaluator) Evaluate(tla *domain.TopLevelArgument, lintFile jsonnet.Node) (string, error) {
+func (le *Evaluator) Evaluate(ctx context.Context, tla *domain.TopLevelArgument, lintFile jsonnet.Node) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if tla.Config == nil {
 		tla.Config = map[string]any{}
 	}
@@ -30,21 +35,38 @@ func (le *Evaluator) Evaluate(tla *domain.TopLevelArgument, lintFile jsonnet.Nod
 	vm := jsonnet.NewVM(string(tlaB), le.importer)
 	result, err := vm.Evaluate(lintFile)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// A module import triggered by the evaluation was canceled.
+			return "", ctxErr
+		}
 		return "", fmt.Errorf("evaluate a lint file as Jsonnet: %w", err)
 	}
 	return result, nil
 }
 
-func (le *Evaluator) Evaluates(tla *domain.TopLevelArgument, lintFiles []*domain.Node) []*domain.Result {
+// Evaluates evaluates lint files.
+// If ctx is canceled, it returns the cancellation error immediately instead of
+// recording it as a per-file result, so cancellation is never rendered as a
+// lint finding.
+func (le *Evaluator) Evaluates(ctx context.Context, tla *domain.TopLevelArgument, lintFiles []*domain.Node) ([]*domain.Result, error) {
 	results := make([]*domain.Result, len(lintFiles))
 	for i, lintFile := range lintFiles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		tla := &domain.TopLevelArgument{
 			Data:         tla.Data,
 			CombinedData: tla.CombinedData,
 			Config:       lintFile.Config,
 		}
-		s, err := le.Evaluate(tla, lintFile.Node)
+		s, err := le.Evaluate(ctx, tla, lintFile.Node)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, ctxErr
+				}
+				return nil, err
+			}
 			results[i] = &domain.Result{
 				LintFile: lintFile.Key,
 				Error:    err.Error(),
@@ -70,7 +92,7 @@ func (le *Evaluator) Evaluates(tla *domain.TopLevelArgument, lintFiles []*domain
 			results[i].Error = err.Error()
 		}
 	}
-	return results
+	return results, nil
 }
 
 func appendLink(r *domain.JsonnetResult, link string) {
