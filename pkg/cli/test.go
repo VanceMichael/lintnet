@@ -26,6 +26,7 @@ type TestArgs struct {
 
 	Target    string
 	FilePaths []string
+	JSON      bool
 }
 
 func (tc *testCommand) command(logger *slogutil.Logger, gFlags *GlobalFlags) *cli.Command {
@@ -51,6 +52,11 @@ and "lintnet test foo" search files matching "foo/**/*.jsonnet".
 If a configuration file isn't specified and isn't found, "lintnet test" works as "lintnet test .".
 
 You can test only a specific target with -target option.
+
+By default, lintnet outputs nothing when all tests pass and outputs diffs when tests fail.
+You can output the test result as JSON with -json option.
+Unlike the default human-friendly output, the JSON report is always output whether tests pass or fail,
+so it is suitable for CI.
 `,
 		Action: func(ctx context.Context, _ *cli.Command) error {
 			return tc.action(ctx, logger, args)
@@ -61,6 +67,11 @@ You can test only a specific target with -target option.
 				Aliases:     []string{"t"},
 				Usage:       "Target ID",
 				Destination: &args.Target,
+			},
+			&cli.BoolFlag{
+				Name:        "json",
+				Usage:       "Output the test result as JSON",
+				Destination: &args.JSON,
 			},
 		},
 		Arguments: []cli.Argument{
@@ -110,5 +121,6 @@ func (tc *testCommand) action(ctx context.Context, logger *slogutil.Logger, args
 		TargetID:       args.Target,
 		RootDir:        rootDir,
 		PWD:            pwd,
+		JSON:           args.JSON,
 	})
 }

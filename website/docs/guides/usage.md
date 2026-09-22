@@ -163,9 +163,15 @@ DESCRIPTION:
 
    You can test only a specific target with -target option.
 
+   By default, lintnet outputs nothing when all tests pass and outputs diffs when tests fail.
+   You can output the test result as JSON with -json option.
+   Unlike the default human-friendly output, the JSON report is always output whether tests pass or fail,
+   so it is suitable for CI.
+
 
 OPTIONS:
    --target string, -t string  Target ID
+   --json                      Output the test result as JSON
    --help, -h                  show help
 ```
 

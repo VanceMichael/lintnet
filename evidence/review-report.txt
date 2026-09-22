@@ -1,0 +1,8 @@
+项目：lintnet JSON 测试报告；验证：go test -count=1 ./... 与 testcmd/output -race 均通过
+Rubric ID：1｜状态：通过｜期望行为：JSON 模式全通过或有失败都只输出一个含 schema、版本和 summary 的文档｜实际观察：同一 results 切片生成一次 TestReport，summary 含 schema_version、lintnet_version 和计数｜直接证据：pkg/controller/testcmd/controller.go；pkg/controller/testcmd/testcmd.go 的 outputJSON；JSON 全通过和混合结果测试
+Rubric ID：2｜状态：通过｜期望行为：每个用例恰有稳定身份、名称、文件和状态，发现入口顺序稳定｜实际观察：runPair 为每个用例生成 path#索引 ID，目录和配置发现均排序，状态限定 pass/fail/error｜直接证据：pkg/controller/testcmd/testcmd.go 的 runPair、sortTestPairs、filterLintFilesWithTest；顺序测试
+Rubric ID：3｜状态：通过｜期望行为：断言失败保留 expected、actual、diff，夹具或 Jsonnet 错误保留 error｜实际观察：cmp.Diff 分支设置 fail 和三项值，读取错误分支设置 error 和 Error，状态不合并｜直接证据：pkg/controller/testcmd/testcmd.go 的 runCase；混合结果测试
+Rubric ID：4｜状态：通过｜期望行为：测试文件解析失败生成文件级 error 并继续其他测试对，summary 和退出状态覆盖全部结果｜实际观察：坏文件生成 path#file error，外层继续后续 pair，summary 统计全部记录，error 返回 test failed｜直接证据：runPair、Test、outputJSON；文件错误继续测试
+Rubric ID：5｜状态：通过｜期望行为：summary 与记录一致，fail/error 使命令失败，全 pass 成功｜实际观察：summary 从同一结果集合计数，存在失败或错误返回 test failed，否则返回 nil｜直接证据：outputJSON；assertSummaryConsistency 和退出状态测试
+Rubric ID：6｜状态：通过｜期望行为：编码或 Writer 失败返回输出故障，不追加人类模板或成功退出｜实际观察：Encoder 错误返回 encode the test result as JSON，JSON 分支不会执行模板｜直接证据：outputJSON；TestController_Test_JSON_writerError
+Rubric ID：7｜状态：通过｜期望行为：非 JSON 的静默成功、失败 diff、过滤和路径归一化兼容｜实际观察：非 JSON 只渲染失败，成功无 stdout，diff、target、data_file/data_files、fake path 和 excluded 处理保留｜直接证据：testcmd.go 非 JSON 分支、readDatafile、readDatafiles、TestResult.Any；回归测试

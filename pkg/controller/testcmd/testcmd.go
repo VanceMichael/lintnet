@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -27,6 +28,7 @@ type ParamTest struct {
 	TargetID       string
 	PWD            string
 	FilePaths      []string
+	JSON           bool
 }
 
 func (p *ParamTest) FilterParam() *filefilter.Param {
@@ -42,19 +44,39 @@ func (c *Controller) Test(_ context.Context, logger *slog.Logger, param *ParamTe
 		return err
 	}
 
-	testResultTemplate, err := template.New("_").Parse(string(testResultTemplateByte))
-	if err != nil {
-		return fmt.Errorf("parse the template of test result: %w", err)
+	// The same result set is used for both output and the exit status,
+	// so they never get inconsistent.
+	results := make([]*TestCaseResult, 0, len(pairs))
+	for _, pair := range pairs {
+		results = append(results, c.runPair(pair)...)
 	}
 
-	failedResults := make([]*FailedResult, 0, len(pairs))
-	for _, pair := range pairs {
-		if results := c.tests(pair); len(results) > 0 {
-			failedResults = append(failedResults, results...)
+	if param.JSON {
+		return c.outputJSON(results)
+	}
+
+	failedResults := make([]*FailedResult, 0, len(results))
+	for _, result := range results {
+		if result.Status == testStatusPass {
+			continue
 		}
+		failedResults = append(failedResults, &FailedResult{
+			Name:         result.Name,
+			LintFilePath: result.LintFilePath,
+			TestFilePath: result.TestFilePath,
+			Wanted:       result.Expected,
+			Got:          result.Actual,
+			Diff:         result.Diff,
+			Error:        result.Error,
+		})
 	}
 	if len(failedResults) == 0 {
 		return nil
+	}
+
+	testResultTemplate, err := template.New("_").Parse(string(testResultTemplateByte))
+	if err != nil {
+		return fmt.Errorf("parse the template of test result: %w", err)
 	}
 	if err := testResultTemplate.Execute(c.stdout, failedResults); err != nil {
 		return fmt.Errorf("render the result: %w", err)
@@ -153,8 +175,17 @@ func (c *Controller) listPairsWithFilePath(filePath string) ([]*TestPair, error)
 		}, doublestar.WithNoFollow()); err != nil {
 			return nil, fmt.Errorf("search files: %w", err)
 		}
+		// GlobWalk order depends on the file system implementation,
+		// so sort pairs to make the output deterministic.
+		sortTestPairs(pairs)
 		return pairs, nil
 	}
+}
+
+func sortTestPairs(pairs []*TestPair) {
+	slices.SortFunc(pairs, func(a, b *TestPair) int {
+		return strings.Compare(a.TestFilePath, b.TestFilePath)
+	})
 }
 
 func (c *Controller) listPairsWithFilePaths(filePaths []string) ([]*TestPair, error) {
@@ -169,20 +200,21 @@ func (c *Controller) listPairsWithFilePaths(filePaths []string) ([]*TestPair, er
 	return pairs, nil
 }
 
-func (c *Controller) test(pair *TestPair, td *TestData) *FailedResult { //nolint:cyclop
+func (c *Controller) runCase(pair *TestPair, td *TestData) *TestCaseResult { //nolint:cyclop
+	result := &TestCaseResult{}
 	if td.DataFile != "" {
 		if err := c.readDatafile(pair, td); err != nil {
-			return &FailedResult{
-				Error: err.Error(),
-			}
+			result.Status = testStatusError
+			result.Error = err.Error()
+			return result
 		}
 	}
 
 	if len(td.DataFiles) != 0 {
 		if err := c.readDatafiles(pair, td); err != nil {
-			return &FailedResult{
-				Error: err.Error(),
-			}
+			result.Status = testStatusError
+			result.Error = err.Error()
+			return result
 		}
 	}
 
@@ -192,34 +224,36 @@ func (c *Controller) test(pair *TestPair, td *TestData) *FailedResult { //nolint
 
 	tlaB, err := json.Marshal(td.Param)
 	if err != nil {
-		return &FailedResult{
-			Error: fmt.Errorf("marshal param as JSON: %w", err).Error(),
-		}
+		result.Status = testStatusError
+		result.Error = fmt.Errorf("marshal param as JSON: %w", err).Error()
+		return result
 	}
-	var results []*TestResult
-	if err := jsonnet.Read(c.fs, pair.LintFilePath, string(tlaB), c.importer, &results); err != nil {
-		return &FailedResult{
-			Error: fmt.Errorf("read a lint file: %w", err).Error(),
-		}
+	var lintResults []*TestResult
+	if err := jsonnet.Read(c.fs, pair.LintFilePath, string(tlaB), c.importer, &lintResults); err != nil {
+		result.Status = testStatusError
+		result.Error = fmt.Errorf("read a lint file: %w", err).Error()
+		return result
 	}
-	rs := make([]any, 0, len(results))
-	for _, result := range results {
-		if result.Excluded {
+	rs := make([]any, 0, len(lintResults))
+	for _, r := range lintResults {
+		if r.Excluded {
 			continue
 		}
-		rs = append(rs, result.Any())
+		rs = append(rs, r.Any())
 	}
 	if len(rs) == 0 && len(td.Result) == 0 {
-		return nil
+		result.Status = testStatusPass
+		return result
 	}
 	if diff := cmp.Diff(td.Result, rs); diff != "" {
-		return &FailedResult{
-			Wanted: td.Result,
-			Got:    rs,
-			Diff:   diff,
-		}
+		result.Status = testStatusFail
+		result.Expected = td.Result
+		result.Actual = rs
+		result.Diff = diff
+		return result
 	}
-	return nil
+	result.Status = testStatusPass
+	return result
 }
 
 func (c *Controller) readDatafile(pair *TestPair, td *TestData) error {
@@ -270,28 +304,71 @@ func (c *Controller) readDatafiles(pair *TestPair, td *TestData) error {
 	return nil
 }
 
-func (c *Controller) tests(pair *TestPair) []*FailedResult {
+// runPair runs all test cases in a test file.
+// If the test file itself can't be read or parsed, a file-level error result
+// is returned, so other test pairs keep being executed.
+func (c *Controller) runPair(pair *TestPair) []*TestCaseResult {
 	testData := []*TestData{}
 	if err := jsonnet.Read(c.fs, pair.TestFilePath, "{}", c.importer, &testData); err != nil {
-		return []*FailedResult{
+		return []*TestCaseResult{
 			{
+				ID:           pair.TestFilePath + "#file",
+				Name:         "",
 				LintFilePath: pair.LintFilePath,
 				TestFilePath: pair.TestFilePath,
+				Status:       testStatusError,
 				Error:        fmt.Errorf("read a test file: %w", err).Error(),
 			},
 		}
 	}
-	results := make([]*FailedResult, 0, len(testData))
-	for _, td := range testData {
-		if result := c.test(pair, td); result != nil {
-			result.Name = td.Name
-			result.LintFilePath = pair.LintFilePath
-			result.TestFilePath = pair.TestFilePath
-			result.Param = td.Param
-			results = append(results, result)
-		}
+	results := make([]*TestCaseResult, 0, len(testData))
+	for i, td := range testData {
+		result := c.runCase(pair, td)
+		result.ID = fmt.Sprintf("%s#%d", pair.TestFilePath, i)
+		result.Name = td.Name
+		result.LintFilePath = pair.LintFilePath
+		result.TestFilePath = pair.TestFilePath
+		results = append(results, result)
 	}
 	return results
+}
+
+// outputJSON writes exactly one JSON document to stdout regardless of
+// whether all tests pass or some tests fail.
+// The summary is computed from the same result set that determines
+// the exit status.
+func (c *Controller) outputJSON(results []*TestCaseResult) error {
+	summary := &TestReportSummary{
+		Total: len(results),
+	}
+	for _, result := range results {
+		switch result.Status {
+		case testStatusPass:
+			summary.Passed++
+		case testStatusFail:
+			summary.Failed++
+		case testStatusError:
+			summary.Errors++
+		}
+	}
+	report := &TestReport{
+		SchemaVersion:  testJSONSchemaVersion,
+		LintnetVersion: c.param.Version,
+		Summary:        summary,
+		Tests:          results,
+	}
+	// A JSON encoding or Writer failure is returned as an output failure.
+	// The human-readable template must not be appended in that case.
+	encoder := json.NewEncoder(c.stdout)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		return fmt.Errorf("encode the test result as JSON: %w", err)
+	}
+	if summary.Failed != 0 || summary.Errors != 0 {
+		return errors.New("test failed")
+	}
+	return nil
 }
 
 func (c *Controller) filterLintFilesWithTest(logger *slog.Logger, lintFiles []*config.LintFile) []*TestPair {
@@ -317,5 +394,8 @@ func (c *Controller) filterLintFilesWithTest(logger *slog.Logger, lintFiles []*c
 			TestFilePath: testFilePath,
 		})
 	}
+	// Configuration discovery iterates maps, whose order is not guaranteed,
+	// so sort pairs to make the output deterministic.
+	sortTestPairs(pairs)
 	return pairs
 }

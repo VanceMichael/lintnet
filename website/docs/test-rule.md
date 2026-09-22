@@ -136,6 +136,66 @@ For example, `lintnet test .` searches files matching the glob pattern `**/*.jso
 
 If a configuration file isn't specified and isn't found, `lintnet test` works as `lintnet test .`.
 
+By default, `lintnet test` outputs nothing when all tests pass and outputs diffs when tests fail.
+
+## JSON output
+
+When you run `lintnet test` in CI, parsing the human-friendly diff is fragile.
+You can output the test result as a stable JSON document with the `-json` option.
+
+```sh
+lintnet test -json
+```
+
+Unlike the default output, the JSON report is always written to the standard output whether all tests pass or some tests fail.
+The exit status is non-zero if any test fails or errors.
+
+```json
+{
+  "schema_version": "1",
+  "lintnet_version": "1.0.0",
+  "summary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "errors": 0
+  },
+  "tests": [
+    {
+      "id": "hello_test.jsonnet#0",
+      "name": "pass",
+      "lint_file": "hello.jsonnet",
+      "test_file": "hello_test.jsonnet",
+      "status": "pass"
+    },
+    {
+      "id": "hello_test.jsonnet#1",
+      "name": "fail",
+      "lint_file": "hello.jsonnet",
+      "test_file": "hello_test.jsonnet",
+      "status": "fail",
+      "expected": [],
+      "actual": [
+        {
+          "name": "description is required"
+        }
+      ],
+      "diff": "  []any{\n+\tmap[string]any{\"name\": string(\"description is required\")},\n  }\n"
+    }
+  ]
+}
+```
+
+- `schema_version` is the version of the JSON report schema.
+- `lintnet_version` is the version of lintnet.
+- `id` is a stable identity of the test case, consisting of the test file path and the zero-based index of the test case in the test file.
+- `status` is either `pass`, `fail`, or `error`.
+- A failed assertion includes `expected`, `actual`, and `diff`.
+- An error such as a fixture read error or a Jsonnet execution error includes `error`.
+- If a test file itself can't be parsed, a file-level error is reported. Its `id` ends with `#file` and its `name` is empty, while other test files are still tested.
+- `summary` is consistent with `tests`: `total` is the number of records, and `passed`, `failed`, and `errors` are the numbers of records of each status.
+- Test pairs are sorted deterministically regardless of whether they are discovered via a configuration file, specified explicitly, or found via the current directory fallback.
+
 ## Normalization of evaluation result
 
 The evaluation result of lint file is normalized before it is compared with `result`.

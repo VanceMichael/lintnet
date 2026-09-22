@@ -19,6 +19,16 @@ import (
 //go:embed test_diff.txt
 var testResultTemplateByte []byte
 
+const (
+	// testJSONSchemaVersion is the version of the JSON test report schema.
+	// It must be bumped when the structure of the JSON report is changed.
+	testJSONSchemaVersion = "1"
+
+	testStatusPass  = "pass"
+	testStatusFail  = "fail"
+	testStatusError = "error"
+)
+
 type TestData struct {
 	Name         string                   `json:"name,omitempty"`
 	DataFile     string                   `json:"data_file,omitempty"`
@@ -65,6 +75,38 @@ type FailedResult struct {
 	Got          any    `json:"got,omitempty"`
 	Diff         string `json:"diff,omitempty"`
 	Error        string `json:"error,omitempty"`
+}
+
+// TestCaseResult is a result of a single test case.
+// ID is a stable identity of the test case.
+// Status is either pass, fail, or error.
+type TestCaseResult struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	LintFilePath string `json:"lint_file"`
+	TestFilePath string `json:"test_file"`
+	Status       string `json:"status"`
+	Expected     any    `json:"expected,omitempty"`
+	Actual       any    `json:"actual,omitempty"`
+	Diff         string `json:"diff,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// TestReport is a JSON test report.
+type TestReport struct {
+	SchemaVersion  string             `json:"schema_version"`
+	LintnetVersion string             `json:"lintnet_version"`
+	Summary        *TestReportSummary `json:"summary"`
+	Tests          []*TestCaseResult  `json:"tests"`
+}
+
+// TestReportSummary is a summary of a JSON test report.
+// The numbers are consistent with Tests.
+type TestReportSummary struct {
+	Total  int `json:"total"`
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
+	Errors int `json:"errors"`
 }
 
 type TestResult struct {
